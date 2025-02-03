@@ -97,6 +97,7 @@ class VPLReporter(TerminalReporter):
                     self.write_line(f"❌ {failed.description}")
                     for suggestion in failed.suggestions:
                         self.write_line(f"⠀💡{suggestion}")
+
                     if failed.longrepr:
                         if isinstance(failed.longrepr, tuple):
                             self.write_line(
@@ -106,11 +107,14 @@ class VPLReporter(TerminalReporter):
                                 "Let's tackle each test together - you've got this! 💪"
                             )
                         else:
-                            for trace in failed.longrepr.chain:
-                                for entry in trace[0].reprentries:
-                                    for line in entry.lines:
-                                        if line.startswith(">") or line.startswith("E"):
-                                            self.write_line(f"> {line}")
+                            if not self.config.hide_assert:
+                                for trace in failed.longrepr.chain:
+                                    for entry in trace[0].reprentries:
+                                        for line in entry.lines:
+                                            if line.startswith(">") or line.startswith(
+                                                "E"
+                                            ):
+                                                self.write_line(f"> {line}")
                     self.write_line("")
             self.write_line("--|>")
 
@@ -242,17 +246,30 @@ class VPLPlugin:
             reporter = VPLReporter(config)
             config.pluginmanager.register(reporter, "terminalreporter")
 
+        if not hasattr(config, "hide_assert"):
+            config.hide_assert = False
+
     @staticmethod
     def pytest_runtest_call(item):
-        def suggest(condition, message):
-            if condition:
-                item._suggestions.append(message)
+        class VPL:
+            def suggest(self, condition, message):
+                if condition:
+                    item._suggestions.append(message)
 
+            def try_import(self, module):
+                import importlib
+
+                try:
+                    return importlib.import_module(module)
+                except Exception:
+                    return None
+
+        vpl = VPL()
         item._suggestions = []
         if hasattr(item, "_obj") and item._obj is not None:
-            item._obj.__globals__["suggest"] = suggest
+            item._obj.__globals__["vpl"] = vpl
         if hasattr(item, "_instance") and item._instance is not None:
-            item._obj.__globals__["suggest"] = suggest
+            item._obj.__globals__["vpl"] = vpl
 
     @staticmethod
     def pytest_runtest_makereport(item, call):
